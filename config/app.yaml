@@ -1,0 +1,23 @@
+app:
+  name: "Chat Bukkigo"
+  environment: "development"
+  api_prefix: "/v1"
+
+openai:
+  model: "for-chat"
+  reasoning_effort: "low"
+  verbosity: "medium"
+  max_output_tokens: 900
+  timeout_seconds: 45
+  max_retries: 2
+  store: false
+
+skill:
+  path: "skills/nail-beauty-consultant"
+  max_history_messages: 12
+
+logging:
+  level: "INFO"
+  file: "logs/chat-bukkigo.log"
+  max_bytes: 5000000
+  backup_count: 3

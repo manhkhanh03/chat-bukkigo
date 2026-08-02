@@ -1,0 +1,7 @@
+interface:
+  display_name: "Nail Beauty Consultant"
+  short_description: "Tư vấn nail có gu, đúng ngữ cảnh"
+  default_prompt: "Use $nail-beauty-consultant to recommend nail styles for my occasion and preferences."
+
+policy:
+  allow_implicit_invocation: true
