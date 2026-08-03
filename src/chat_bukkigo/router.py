@@ -13,9 +13,19 @@ class Intent(StrEnum):
     SAFETY = "safety"
 
 
+class ResponseMode(StrEnum):
+    DIRECT = "direct"
+    RECOMMEND = "recommend"
+    EXPLORE = "explore"
+    COMPARE = "compare"
+    REFINE = "refine"
+    SAFETY = "safety"
+
+
 @dataclass(frozen=True, slots=True)
 class RoutingDecision:
     intent: Intent
+    response_mode: ResponseMode
     references: tuple[str, ...]
     signals: tuple[str, ...]
 
@@ -27,13 +37,33 @@ def normalize(text: str) -> str:
 
 
 SAFETY_SIGNALS = (
-    "dau",
+    "đau",
+    "sưng",
+    "chảy máu",
+    "có mủ",
+    "nung mủ",
+    "ngứa",
+    "rát",
+    "nổi mẩn",
+    "dị ứng",
+    "nhiễm trùng",
+    "nấm móng",
+    "móng xanh",
+    "móng đen",
+    "móng vàng bất thường",
+    "bong khỏi nền",
+    "gãy sâu",
+    "an toàn",
+    "vệ sinh dụng cụ",
+    "mang thai",
+)
+
+UNACCENTED_SAFETY_SIGNALS = (
     "sung",
     "chay mau",
     "co mu",
     "nung mu",
     "ngua",
-    "rat",
     "noi man",
     "di ung",
     "nhiem trung",
@@ -46,6 +76,11 @@ SAFETY_SIGNALS = (
     "an toan",
     "ve sinh dung cu",
     "mang thai",
+    "bi dau",
+    "mong dau",
+    "dau quanh mong",
+    "bi rat",
+    "rat quanh mong",
 )
 
 OCCASION_SIGNALS = (
@@ -69,6 +104,7 @@ OCCASION_SIGNALS = (
 
 COLOR_SHAPE_SIGNALS = (
     "mau",
+    "nude",
     "tong da",
     "da tay",
     "dang mong",
@@ -107,13 +143,19 @@ STYLE_SIGNALS = (
 CONSULTATION_SIGNALS = (
     "tu van",
     "goi y",
-    "khong biet",
-    "phan van",
     "hop voi toi",
     "hop minh",
     "nen chon",
     "ngan sach",
     "khong qua noi",
+)
+
+EXPLORE_SIGNALS = (
+    "khong biet",
+    "chua biet",
+    "khong ro minh thich",
+    "gi cung duoc",
+    "phan van",
 )
 
 COMPARISON_SIGNALS = ("so voi", "khac gi", "chon cai nao", "mau nao hon", "a hay b")
@@ -132,48 +174,160 @@ TECHNICAL_SIGNALS = (
     "e-file",
 )
 
+REFINEMENT_SIGNALS = (
+    "nhe hon",
+    "dam hon",
+    "noi hon",
+    "bot noi",
+    "bot dam",
+    "them chut",
+    "doi sang",
+    "giu mau",
+    "giu dang",
+    "mau 1",
+    "mau 2",
+    "mau 3",
+    "mau thu nhat",
+    "mau thu hai",
+    "mau thu ba",
+    "huong 1",
+    "huong 2",
+    "huong 3",
+    "cai nay",
+    "cai kia",
+    "the nay",
+    "the kia",
+    "van con",
+)
+
 
 def _matches(text: str, candidates: tuple[str, ...]) -> list[str]:
-    return [candidate for candidate in candidates if candidate in text]
+    return [
+        candidate
+        for candidate in candidates
+        if re.search(rf"(?<!\w){re.escape(candidate)}(?!\w)", text)
+    ]
 
 
-def route(message: str) -> RoutingDecision:
+def _safety_matches(message: str) -> list[str]:
+    accented = re.sub(r"\s+", " ", message.casefold()).strip()
+    matches = [normalize(value) for value in _matches(accented, SAFETY_SIGNALS)]
+    matches.extend(_matches(normalize(message), UNACCENTED_SAFETY_SIGNALS))
+    return list(dict.fromkeys(matches))
+
+
+def _has_choice(text: str) -> bool:
+    padded = f" {text} "
+    return " hay " in padded and " hay khong " not in padded
+
+
+def _response_mode(
+    text: str,
+    *,
+    has_context: bool,
+    comparison: list[str],
+) -> ResponseMode:
+    if comparison or _has_choice(text):
+        return ResponseMode.COMPARE
+    if has_context and _matches(text, REFINEMENT_SIGNALS):
+        return ResponseMode.REFINE
+    if _matches(text, EXPLORE_SIGNALS):
+        return ResponseMode.EXPLORE
+    if _matches(text, CONSULTATION_SIGNALS):
+        return ResponseMode.RECOMMEND
+    return ResponseMode.DIRECT
+
+
+def _aesthetic_references(
+    *,
+    mode: ResponseMode,
+    occasion: list[str],
+    color_shape: list[str],
+    style: list[str],
+) -> tuple[str, ...]:
+    refs: list[str] = []
+    if color_shape:
+        refs.append("color-and-proportion.md")
+    if occasion:
+        refs.append("occasion-guides.md")
+    if style or mode is ResponseMode.EXPLORE:
+        refs.append("style-taxonomy.md")
+
+    if not refs:
+        refs.append("aesthetic-principles.md")
+    if mode in {ResponseMode.RECOMMEND, ResponseMode.EXPLORE} and len(refs) == 1:
+        fallback = (
+            "aesthetic-principles.md"
+            if refs[0] == "style-taxonomy.md"
+            else "style-taxonomy.md"
+        )
+        refs.append(fallback)
+
+    return tuple(dict.fromkeys(refs[:2]))
+
+
+def route(message: str, *, context: str | None = None) -> RoutingDecision:
     text = normalize(message)
-    safety = _matches(text, SAFETY_SIGNALS)
+    current_safety = _safety_matches(message)
+    current_comparison = _matches(text, COMPARISON_SIGNALS)
+    mode = _response_mode(
+        text,
+        has_context=bool(context),
+        comparison=current_comparison,
+    )
+
+    routing_text = text
+    if mode is ResponseMode.REFINE and context:
+        routing_text = f"{normalize(context)} {text}".strip()
+
+    safety = current_safety or (
+        _safety_matches(context or "") if mode is ResponseMode.REFINE else []
+    )
     if safety:
         return RoutingDecision(
             intent=Intent.SAFETY,
+            response_mode=ResponseMode.SAFETY,
             references=("safety-escalation.md",),
             signals=tuple(safety),
         )
 
-    occasion = _matches(text, OCCASION_SIGNALS)
-    color_shape = _matches(text, COLOR_SHAPE_SIGNALS)
-    style = _matches(text, STYLE_SIGNALS)
-    consultation = _matches(text, CONSULTATION_SIGNALS)
-    comparison = _matches(text, COMPARISON_SIGNALS)
-    technical = _matches(text, TECHNICAL_SIGNALS)
+    occasion = _matches(routing_text, OCCASION_SIGNALS)
+    color_shape = _matches(routing_text, COLOR_SHAPE_SIGNALS)
+    style = _matches(routing_text, STYLE_SIGNALS)
+    consultation = _matches(routing_text, CONSULTATION_SIGNALS)
+    exploration = _matches(routing_text, EXPLORE_SIGNALS)
+    comparison = _matches(routing_text, COMPARISON_SIGNALS)
+    technical = _matches(routing_text, TECHNICAL_SIGNALS)
 
     intent = Intent.AESTHETIC
-    if comparison or (" hay " in f" {text} " and technical):
+    if comparison or _has_choice(routing_text):
         intent = Intent.COMPARISON
     elif technical and not (occasion or style or consultation or color_shape):
         intent = Intent.TECHNICAL
 
-    refs: list[str] = ["aesthetic-principles.md"]
-    if intent in {Intent.AESTHETIC, Intent.COMPARISON}:
-        refs.extend(("consultation-playbook.md", "recommendation-patterns.md"))
-    if occasion:
-        refs.append("occasion-guides.md")
-    if color_shape:
-        refs.append("color-and-proportion.md")
-    if style or consultation or (intent is Intent.AESTHETIC and not color_shape):
-        refs.append("style-taxonomy.md")
-    if intent in {Intent.AESTHETIC, Intent.COMPARISON}:
-        refs.append("anti-patterns.md")
+    if technical:
+        refs = ("technical-basics.md",)
+    else:
+        refs = _aesthetic_references(
+            mode=mode,
+            occasion=occasion,
+            color_shape=color_shape,
+            style=style,
+        )
 
     return RoutingDecision(
         intent=intent,
-        references=tuple(dict.fromkeys(refs)),
-        signals=tuple(occasion + color_shape + style + consultation + comparison + technical),
+        response_mode=mode,
+        references=refs,
+        signals=tuple(
+            dict.fromkeys(
+                occasion
+                + color_shape
+                + style
+                + consultation
+                + exploration
+                + comparison
+                + technical
+            )
+        ),
     )

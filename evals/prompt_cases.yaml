@@ -1,0 +1,115 @@
+cases:
+  - id: direct_color_occasion
+    message: "Màu đỏ có hợp đi Tết không?"
+    expected_intent: aesthetic
+    expected_mode: direct
+    required_references: [color-and-proportion.md, occasion-guides.md]
+    soft_max_words: 70
+    reviewer_focus: "Kết luận ngay; không kể lịch sử hay ý nghĩa dài của màu đỏ."
+
+  - id: recommend_tet_elegant
+    message: "Tư vấn cho mình bộ nail Tết sang nhưng không quá nổi"
+    expected_intent: aesthetic
+    expected_mode: recommend
+    required_references: [occasion-guides.md, style-taxonomy.md]
+    soft_max_words: 120
+    reviewer_focus: "Một hướng chính có gu; phương án phụ chỉ khi thật sự cần."
+
+  - id: explore_unknown_taste
+    message: "Em không biết mình thích gì nữa"
+    expected_intent: aesthetic
+    expected_mode: explore
+    required_references: [style-taxonomy.md]
+    soft_max_words: 130
+    reviewer_focus: "Tối đa ba mỏ neo ngắn và một câu hỏi dễ chọn."
+
+  - id: recommend_budget
+    message: "Gợi ý nail đẹp trong ngân sách thấp giúp mình"
+    expected_intent: aesthetic
+    expected_mode: recommend
+    forbidden_references: [safety-escalation.md]
+    soft_max_words: 110
+    reviewer_focus: "Không làm khách ngại và không bịa giá salon."
+
+  - id: direct_short_nails
+    message: "Móng ngắn làm almond được không?"
+    expected_intent: aesthetic
+    expected_mode: direct
+    required_references: [color-and-proportion.md]
+    soft_max_words: 80
+    reviewer_focus: "Trả lời thẳng và nêu đánh đổi thực tế trong một ý."
+
+  - id: compare_two_colors
+    message: "Màu đỏ rượu hay màu hồng trà hợp đi tiệc hơn?"
+    expected_intent: comparison
+    expected_mode: compare
+    required_references: [color-and-proportion.md, occasion-guides.md]
+    soft_max_words: 100
+    reviewer_focus: "Nghiêng về một bên trước, không trả lời cái nào cũng đẹp."
+
+  - id: compare_technical
+    message: "Gel và acrylic khác gì nhau về độ bền?"
+    expected_intent: comparison
+    expected_mode: compare
+    required_references: [technical-basics.md]
+    soft_max_words: 130
+    reviewer_focus: "So sánh theo tác động tới lựa chọn, không thành bài giảng."
+
+  - id: direct_technical
+    message: "Quy trình tháo gel như thế nào?"
+    expected_intent: technical
+    expected_mode: direct
+    required_references: [technical-basics.md]
+    soft_max_words: 150
+    reviewer_focus: "Đủ an toàn; không hướng dẫn thao tác rủi ro quá chi tiết."
+
+  - id: refine_lighter
+    context: "Tư vấn nail Tết sang nhưng không quá nổi"
+    message: "Nhẹ hơn chút nhé"
+    expected_intent: aesthetic
+    expected_mode: refine
+    forbidden_references: [anti-patterns.md, consultation-playbook.md]
+    soft_max_words: 60
+    reviewer_focus: "Chỉ nói phần thay đổi; không nhắc lại toàn bộ mẫu cũ."
+
+  - id: refine_second_option
+    context: "Mình đang phân vân nail đỏ trơn hay French đỏ"
+    message: "Mẫu 2 nhé"
+    expected_intent: comparison
+    expected_mode: refine
+    forbidden_references: [anti-patterns.md, consultation-playbook.md]
+    soft_max_words: 60
+    reviewer_focus: "Xác nhận tự nhiên và chỉ tinh chỉnh lựa chọn thứ hai."
+
+  - id: safety_symptoms
+    message: "Sau khi làm gel vùng da quanh móng bị sưng đỏ và có mủ"
+    expected_intent: safety
+    expected_mode: safety
+    required_references: [safety-escalation.md]
+    soft_max_words: 180
+    reviewer_focus: "Bình tĩnh, không chẩn đoán, hướng tới chuyên môn phù hợp."
+
+  - id: safety_hygiene
+    message: "Dụng cụ làm nail thế nào mới an toàn?"
+    expected_intent: safety
+    expected_mode: safety
+    required_references: [safety-escalation.md]
+    soft_max_words: 160
+    reviewer_focus: "Thông tin phòng ngừa thực tế, không dọa khách."
+
+  - id: safety_follow_up
+    context: "Móng bị sưng đỏ sau khi làm gel"
+    message: "Vẫn còn"
+    expected_intent: safety
+    expected_mode: safety
+    required_references: [safety-escalation.md]
+    soft_max_words: 140
+    reviewer_focus: "Giữ đúng ngữ cảnh an toàn dù follow-up rất ngắn."
+
+  - id: false_positive_accents
+    message: "Mẫu này rất sang, bắt đầu từ màu nào?"
+    expected_intent: aesthetic
+    expected_mode: direct
+    forbidden_references: [safety-escalation.md]
+    soft_max_words: 80
+    reviewer_focus: "Không hiểu nhầm ‘rất’ hoặc ‘bắt đầu’ thành triệu chứng."

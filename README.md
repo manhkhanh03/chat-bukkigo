@@ -5,8 +5,8 @@ Python backend cho chatbot tư vấn thẩm mỹ nail. Phiên bản này tập t
 ## Cấu trúc
 
 - `skills/nail-beauty-consultant/`: skill và 8 reference thẩm mỹ.
-- `src/chat_bukkigo/router.py`: nhận diện thẩm mỹ, dịp, so sánh, kỹ thuật và an toàn.
-- `src/chat_bukkigo/prompt_builder.py`: chỉ nạp reference cần cho từng lượt.
+- `src/chat_bukkigo/router.py`: nhận diện intent và kiểu phản hồi (`direct`, `recommend`, `explore`, `compare`, `refine`, `safety`).
+- `src/chat_bukkigo/prompt_builder.py`: nạp tối đa hai reference cần thiết và gắn hợp đồng độ dài theo từng lượt.
 - `src/chat_bukkigo/service.py`: gọi OpenAI Responses API.
 - `config/app.yaml`: cấu hình không nhạy cảm.
 - `.env`: API key và secret cục bộ, không commit.
@@ -57,7 +57,9 @@ curl -X POST http://127.0.0.1:8000/v1/chat \
   -d '{"message":"Tư vấn cho tôi một bộ móng đẹp đi chơi Tết, sang nhưng không quá nổi"}'
 ```
 
-API trả thêm `intent` và `references_used` để kiểm tra router có nạp đúng ngữ cảnh hay không. Lịch sử hội thoại được client gửi lại trong `history`; mặc định server không yêu cầu OpenAI lưu response.
+API trả thêm `intent`, `response_mode` và `references_used` để kiểm tra router có nạp đúng ngữ cảnh hay không. Lịch sử hội thoại được client gửi lại trong `history`; lượt user gần nhất được dùng để nhận ra các câu chỉnh tiếp như “nhẹ hơn chút” mà không tư vấn lại từ đầu. Mặc định server không yêu cầu OpenAI lưu response.
+
+Prompt V2 ưu tiên câu trả lời ngắn theo ngữ cảnh thay vì một giới hạn từ cứng. Các case routing và tiêu chí review thủ công nằm trong `evals/`; chạy `pytest` để kiểm tra giới hạn số reference và kích thước context.
 
 Streaming dùng `POST /v1/chat/stream` với response `text/event-stream`. Event `done` trả `time_to_first_token_ms` và `total_ms`; giao diện cũng đo tổng end-to-end từ trình duyệt.
 

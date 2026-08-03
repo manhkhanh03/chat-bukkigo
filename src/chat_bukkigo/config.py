@@ -21,8 +21,8 @@ class AppConfig(BaseModel):
 class OpenAIConfig(BaseModel):
     model: str = "gpt-5.6-terra"
     reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "low"
-    verbosity: Literal["low", "medium", "high"] = "medium"
-    max_output_tokens: int = Field(default=900, ge=100, le=8000)
+    verbosity: Literal["low", "medium", "high"] = "low"
+    max_output_tokens: int = Field(default=650, ge=100, le=8000)
     timeout_seconds: float = Field(default=45, gt=0, le=300)
     max_retries: int = Field(default=2, ge=0, le=5)
     store: bool = False

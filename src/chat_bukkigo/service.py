@@ -11,7 +11,7 @@ from openai import APIError, AsyncOpenAI
 
 from .config import Settings
 from .prompt_builder import SkillLoader
-from .router import route
+from .router import Intent, ResponseMode, RoutingDecision, route
 from .schemas import ChatRequest, ChatResponse
 
 
@@ -35,7 +35,20 @@ class ChatStreamEvent:
 class PreparedChat:
     kwargs: dict[str, object]
     intent: str
+    response_mode: str
     references_used: tuple[str, ...]
+    instruction_chars: int
+    max_output_tokens: int
+
+
+OUTPUT_TOKEN_BUDGETS = {
+    ResponseMode.DIRECT: 350,
+    ResponseMode.RECOMMEND: 500,
+    ResponseMode.EXPLORE: 500,
+    ResponseMode.COMPARE: 450,
+    ResponseMode.REFINE: 350,
+    ResponseMode.SAFETY: 650,
+}
 
 
 class ChatService:
@@ -68,12 +81,17 @@ class ChatService:
         return hashlib.sha256(f"{salt}:{user_id}".encode()).hexdigest()
 
     def _prepare(self, request: ChatRequest) -> PreparedChat:
-        decision = route(request.message)
-        prompt = self.skill_loader.build(decision)
         max_history = self.settings.skill.max_history_messages
         history = request.history[-max_history:] if max_history else []
+        previous_user_message = next(
+            (message.content for message in reversed(history) if message.role == "user"),
+            None,
+        )
+        decision = route(request.message, context=previous_user_message)
+        prompt = self.skill_loader.build(decision)
         input_messages = [message.model_dump() for message in history]
         input_messages.append({"role": "user", "content": request.message})
+        max_output_tokens = self._output_token_budget(decision)
 
         kwargs: dict[str, object] = {
             "model": self.settings.openai.model,
@@ -81,7 +99,7 @@ class ChatService:
             "input": input_messages,
             "reasoning": {"effort": self.settings.openai.reasoning_effort},
             "text": {"verbosity": self.settings.openai.verbosity},
-            "max_output_tokens": self.settings.openai.max_output_tokens,
+            "max_output_tokens": max_output_tokens,
             "store": self.settings.openai.store,
         }
         if safety_identifier := self._safety_identifier(request.user_id):
@@ -90,8 +108,17 @@ class ChatService:
         return PreparedChat(
             kwargs=kwargs,
             intent=decision.intent.value,
+            response_mode=decision.response_mode.value,
             references_used=prompt.references_used,
+            instruction_chars=len(prompt.instructions),
+            max_output_tokens=max_output_tokens,
         )
+
+    def _output_token_budget(self, decision: RoutingDecision) -> int:
+        budget = OUTPUT_TOKEN_BUDGETS[decision.response_mode]
+        if decision.intent is Intent.TECHNICAL:
+            budget = max(budget, 500)
+        return min(budget, self.settings.openai.max_output_tokens)
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         self.ensure_configured()
@@ -105,16 +132,20 @@ class ChatService:
             self._log_provider_error(trace_id, started, exc, stream=False)
             raise ProviderRequestError(trace_id) from exc
         total_ms = round((time.perf_counter() - started) * 1000)
+        answer = response.output_text
         self.logger.info(
-            "event=chat_completed trace_id=%s stream=false response_id=%s total_ms=%s",
+            "event=chat_completed trace_id=%s stream=false response_id=%s "
+            "output_chars=%s total_ms=%s",
             trace_id,
             response.id,
+            len(answer),
             total_ms,
         )
         return ChatResponse(
-            answer=response.output_text,
+            answer=answer,
             response_id=response.id,
             intent=prepared.intent,
+            response_mode=prepared.response_mode,
             references_used=list(prepared.references_used),
             trace_id=trace_id,
         )
@@ -126,6 +157,7 @@ class ChatService:
         started = time.perf_counter()
         first_token_at: float | None = None
         response_id = ""
+        output_chars = 0
         stream = None
         self._log_started(trace_id, prepared, stream=True)
 
@@ -137,6 +169,7 @@ class ChatService:
             event="meta",
             data={
                 "intent": prepared.intent,
+                "response_mode": prepared.response_mode,
                 "references_used": list(prepared.references_used),
                 "model": self.settings.openai.model,
                 "trace_id": trace_id,
@@ -154,6 +187,7 @@ class ChatService:
                     response_id = event.response.id
                 elif event_type == "response.output_text.delta":
                     now = time.perf_counter()
+                    output_chars += len(event.delta)
                     if first_token_at is None:
                         first_token_at = now
                         self.logger.info(
@@ -175,6 +209,7 @@ class ChatService:
                 data={
                     "response_id": response_id,
                     "intent": prepared.intent,
+                    "response_mode": prepared.response_mode,
                     "references_used": list(prepared.references_used),
                     "time_to_first_token_ms": ttft_ms,
                     "total_ms": total_ms,
@@ -183,9 +218,10 @@ class ChatService:
             )
             self.logger.info(
                 "event=chat_completed trace_id=%s stream=true response_id=%s "
-                "ttft_ms=%s total_ms=%s",
+                "output_chars=%s ttft_ms=%s total_ms=%s",
                 trace_id,
                 response_id,
+                output_chars,
                 ttft_ms,
                 total_ms,
             )
@@ -210,12 +246,16 @@ class ChatService:
     ) -> None:
         self.logger.info(
             "event=chat_started trace_id=%s stream=%s model=%s intent=%s "
-            "reference_count=%s",
+            "response_mode=%s reference_count=%s instruction_chars=%s "
+            "max_output_tokens=%s",
             trace_id,
             str(stream).lower(),
             self.settings.openai.model,
             prepared.intent,
+            prepared.response_mode,
             len(prepared.references_used),
+            prepared.instruction_chars,
+            prepared.max_output_tokens,
         )
 
     def _log_provider_error(

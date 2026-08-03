@@ -6,8 +6,8 @@ app:
 openai:
   model: "for-chat"
   reasoning_effort: "low"
-  verbosity: "medium"
-  max_output_tokens: 900
+  verbosity: "low"
+  max_output_tokens: 650
   timeout_seconds: 45
   max_retries: 2
   store: false

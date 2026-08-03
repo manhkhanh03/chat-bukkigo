@@ -20,6 +20,7 @@ class ChatResponse(BaseModel):
     answer: str
     response_id: str
     intent: str
+    response_mode: str
     references_used: list[str]
     trace_id: str
 
