@@ -1,0 +1,15 @@
+services:
+  bge-m3:
+    build:
+      context: .
+      dockerfile: docker/embedding/Dockerfile
+    container_name: chat_bukkigo_bge_m3
+    restart: unless-stopped
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./models_cache:/root/.cache/huggingface
+    environment:
+      - MODEL_NAME=BAAI/bge-m3
+      - PORT=8008
+      - DEVICE=cpu
