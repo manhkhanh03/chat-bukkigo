@@ -1,0 +1,34 @@
+name: search_nail_knowledge
+description: >
+  Tra cứu cơ sở dữ liệu tri thức chuyên môn sâu về nail tại salon (Shellac, Gel, Acryl,
+  so sánh vật liệu, xử lý móng mỏng/yếu, móng cắn, kỹ thuật prep, xử lý khiếu nại bong tróc,
+  sứt mẻ, chính sách bảo hành 7 ngày).
+  Sử dụng tool này khi khách hàng hỏi các câu hỏi cần sự thật kỹ thuật chi tiết (facts),
+  so sánh lựa chọn hoặc chính sách bảo hành mà không có trong hướng dẫn cơ bản.
+parameters:
+  type: object
+  properties:
+    query:
+      type: string
+      description: Câu hỏi hoặc từ khóa ngữ nghĩa cần tìm kiếm trong cơ sở tri thức (hỗ trợ tiếng Đức, tiếng Việt, tiếng Anh).
+    category:
+      type: string
+      enum:
+        - service_detail
+        - service_comparison
+        - complaint_warranty
+        - safety_escalation
+        - booking_policy
+      description: Nhóm tri thức muốn lọc (tùy chọn).
+    service:
+      type: string
+      enum:
+        - shellac
+        - gel
+        - acryl
+        - general
+      description: Loại dịch vụ cụ thể muốn lọc (tùy chọn).
+  required:
+    - query
+timeout: 10
+requires_confirmation: false

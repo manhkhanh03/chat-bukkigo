@@ -7,7 +7,7 @@ from pathlib import Path
 from .router import RoutingDecision
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PromptBundle:
     instructions: str
     references_used: tuple[str, ...]
@@ -85,3 +85,40 @@ class SkillLoader:
             instructions="\n\n".join(sections),
             references_used=decision.references,
         )
+
+    def build_core_system_prompt(self) -> str:
+        """Tạo System Prompt toàn diện cho AgentCore bao gồm SKILL.md và các Core Guardrails."""
+        sections = [
+            "<role_and_skill_core>",
+            self._without_frontmatter(self._core),
+            "</role_and_skill_core>",
+        ]
+
+        # Nạp 2 Core References bất biến (Rules & Safety)
+        core_refs = ["receptionist-core-rules.md", "safety-and-medical.md"]
+        for ref_name in core_refs:
+            ref_file = self.references_path / ref_name
+            if ref_file.exists():
+                sections.extend(
+                    (
+                        f'<core_guardrail name="{ref_name}">',
+                        self._read(ref_file),
+                        "</core_guardrail>",
+                    )
+                )
+
+        sections.append(
+            "<instructions_for_tools>\n"
+            "Bạn có sẵn công cụ 'search_nail_knowledge' để tra cứu cơ sở tri thức chuyên sâu trên Qdrant "
+            "(về chi tiết Shellac, Gel, Acryl, kỹ thuật prep, so sánh vật liệu, xử lý khiếu nại, bảo hành).\n"
+            "- Với các câu hỏi chào hỏi xã giao, thông tin cơ bản hoặc các tín hiệu an toàn y tế rõ ràng (viêm sưng, mủ, móng xanh): "
+            "hãy trả lời TRỰC TIẾP dựa trên hướng dẫn có sẵn, KHÔNG cần gọi tool.\n"
+            "- Khi khách hàng hỏi các câu hỏi chuyên môn sâu, thắc mắc so sánh hoặc khiếu nại chất lượng: "
+            "hãy sử dụng tool 'search_nail_knowledge' để tra cứu Fact chính xác trước khi trả lời.\n"
+            "- Sau khi có thông tin từ tool, tổng hợp câu trả lời ngắn gọn (20–40 từ), tuân thủ Fact vs Recommendation, "
+            "trả lời bằng ngôn ngữ của khách và luôn hướng tới việc mời khách đặt hẹn (Booking).\n"
+            "</instructions_for_tools>"
+        )
+
+        return "\n\n".join(sections)
+

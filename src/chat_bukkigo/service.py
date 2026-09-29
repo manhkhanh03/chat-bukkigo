@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -10,6 +11,8 @@ from dataclasses import dataclass
 from openai import APIError, AsyncOpenAI
 
 from .config import Settings
+from .core.agent import AgentCore
+from .core.registry import ToolRegistry
 from .prompt_builder import SkillLoader
 from .router import Intent, ResponseMode, RoutingDecision, route
 from .schemas import ChatRequest, ChatResponse
@@ -69,6 +72,19 @@ class ChatService:
             if settings.api_key
             else None
         )
+        self.tool_registry = ToolRegistry()
+        self.tool_registry.discover_and_register()
+        core_prompt = self.skill_loader.build_core_system_prompt()
+        self.agent = (
+            AgentCore(
+                llm_client=self.client,
+                registry=self.tool_registry,
+                system_prompt=core_prompt,
+                model=settings.openai.model,
+            )
+            if self.client
+            else None
+        )
 
     def ensure_configured(self) -> None:
         if self.client is None:
@@ -122,6 +138,40 @@ class ChatService:
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         self.ensure_configured()
+
+        # 1. Nếu có AgentCore và có Tools đăng ký (search_nail_knowledge, booking...), ưu tiên chạy Agent có Function Calling
+        if self.agent and self.tool_registry.has_tools():
+            session_id = request.user_id or "default"
+            trace_id = uuid.uuid4().hex[:12]
+            started = time.perf_counter()
+            try:
+                # Đồng bộ history nếu session chưa có nhưng request có history
+                if request.history and not self.agent.sessions.get_history(session_id):
+                    for msg in request.history:
+                        self.agent.sessions.append(session_id, {"role": msg.role, "content": msg.content})
+
+                agent_res = await self.agent.chat(user_input=request.message, session_id=session_id)
+                total_ms = round((time.perf_counter() - started) * 1000)
+                data_sources = agent_res.get("data_sources", [])
+                self.logger.info(
+                    "event=agent_chat_completed trace_id=%s data_sources=%s tools_used=%s total_ms=%s",
+                    trace_id,
+                    data_sources,
+                    agent_res.get("tools_used", []),
+                    total_ms,
+                )
+                return ChatResponse(
+                    answer=agent_res["answer"],
+                    response_id=f"agent-{trace_id}",
+                    intent="agent_tool_calling" if agent_res.get("tools_used") else "core_references",
+                    response_mode="direct",
+                    references_used=data_sources,
+                    trace_id=trace_id,
+                )
+            except Exception as e:
+                self.logger.warning("AgentCore gặp lỗi (%s), chuyển sang Responses API fallback...", e)
+
+        # 2. Fallback sang Responses API truyền thống
         prepared = self._prepare(request)
         trace_id = uuid.uuid4().hex[:12]
         started = time.perf_counter()
@@ -152,6 +202,97 @@ class ChatService:
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[ChatStreamEvent]:
         self.ensure_configured()
+
+        # 1. Nếu có AgentCore và có Tools đăng ký, ưu tiên chạy Agent có Function Calling
+        if self.agent and self.tool_registry.has_tools():
+            session_id = request.user_id or "default"
+            trace_id = uuid.uuid4().hex[:12]
+            started = time.perf_counter()
+            self.logger.info(
+                "event=agent_stream_started trace_id=%s model=%s session_id=%s",
+                trace_id,
+                self.settings.openai.model,
+                session_id,
+            )
+
+            yield ChatStreamEvent(
+                event="status",
+                data={"phase": "thinking", "elapsed_ms": 0, "trace_id": trace_id},
+            )
+
+            try:
+                # Đồng bộ history nếu session chưa có nhưng request có history
+                if request.history and not self.agent.sessions.get_history(session_id):
+                    for msg in request.history:
+                        self.agent.sessions.append(session_id, {"role": msg.role, "content": msg.content})
+
+                agent_res = await self.agent.chat(user_input=request.message, session_id=session_id)
+                answer = agent_res.get("answer", "")
+                tools_used = agent_res.get("tools_used", [])
+                data_sources = agent_res.get("data_sources", [])
+
+                yield ChatStreamEvent(
+                    event="meta",
+                    data={
+                        "intent": "agent_tool_calling" if tools_used else "core_references",
+                        "response_mode": "direct",
+                        "references_used": data_sources,
+                        "tools_used": tools_used,
+                        "model": self.settings.openai.model,
+                        "trace_id": trace_id,
+                    },
+                )
+
+                first_token_at = time.perf_counter()
+                ttft_ms = round((first_token_at - started) * 1000)
+                self.logger.info(
+                    "event=first_token trace_id=%s ttft_ms=%s",
+                    trace_id,
+                    ttft_ms,
+                )
+
+                # Stream các từ/cụm từ ra giao diện
+                words = answer.split(" ")
+                chunk_size = 3
+                for i in range(0, len(words), chunk_size):
+                    chunk_text = " ".join(words[i : i + chunk_size])
+                    if i + chunk_size < len(words):
+                        chunk_text += " "
+                    yield ChatStreamEvent(event="delta", data={"text": chunk_text})
+                    await asyncio.sleep(0.02)
+
+                completed = time.perf_counter()
+                total_ms = round((completed - started) * 1000)
+
+                yield ChatStreamEvent(
+                    event="done",
+                    data={
+                        "response_id": f"agent-{trace_id}",
+                        "intent": "agent_tool_calling" if tools_used else "core_references",
+                        "response_mode": "direct",
+                        "references_used": data_sources,
+                        "tools_used": tools_used,
+                        "time_to_first_token_ms": ttft_ms,
+                        "total_ms": total_ms,
+                        "trace_id": trace_id,
+                    },
+                )
+                self.logger.info(
+                    "event=agent_chat_completed trace_id=%s stream=true response_id=agent-%s "
+                    "output_chars=%s tools_used=%s data_sources=%s ttft_ms=%s total_ms=%s",
+                    trace_id,
+                    trace_id,
+                    len(answer),
+                    tools_used,
+                    data_sources,
+                    ttft_ms,
+                    total_ms,
+                )
+                return
+            except Exception as e:
+                self.logger.warning("AgentCore stream gặp lỗi (%s), chuyển sang Responses API fallback...", e)
+
+        # 2. Fallback sang Responses API truyền thống
         prepared = self._prepare(request)
         trace_id = uuid.uuid4().hex[:12]
         started = time.perf_counter()

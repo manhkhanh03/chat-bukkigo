@@ -3,7 +3,13 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
 
 
 class Intent(StrEnum):
@@ -22,7 +28,7 @@ class ResponseMode(StrEnum):
     SAFETY = "safety"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class RoutingDecision:
     intent: Intent
     response_mode: ResponseMode

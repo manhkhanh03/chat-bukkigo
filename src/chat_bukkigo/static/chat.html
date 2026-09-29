@@ -371,6 +371,8 @@
         metric.textContent = `${label} · ${seconds(performance.now() - clientStarted)}`;
       }, 100);
 
+      const currentSessionId = window.__sessionId || (window.__sessionId = "sess_" + Math.random().toString(36).substring(2, 10));
+
       try {
         const response = await fetch("/v1/chat/stream", {
           method: "POST",
@@ -378,7 +380,7 @@
             "Accept": "text/event-stream",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ message, history }),
+          body: JSON.stringify({ message, history, user_id: currentSessionId }),
         });
 
         if (!response.ok) {
@@ -419,11 +421,16 @@
         const clientTotal = performance.now() - clientStarted;
         const ttft = doneData?.time_to_first_token_ms ?? (firstTokenAt - clientStarted);
         const serverTotal = doneData?.total_ms;
-        metric.textContent = [
+        const metrics = [
           `Tổng ${seconds(clientTotal)}`,
           `token đầu ${seconds(ttft)}`,
           serverTotal == null ? null : `server ${seconds(serverTotal)}`,
-        ].filter(Boolean).join(" · ");
+        ].filter(Boolean);
+
+        if (doneData?.references_used && doneData.references_used.length > 0) {
+          metrics.push(`📚 Nguồn: ${doneData.references_used.join(", ")}`);
+        }
+        metric.textContent = metrics.join(" · ");
 
         history.push(
           { role: "user", content: message },
